@@ -1,0 +1,21 @@
+actor: ApiTester
+suite_namespace: Tests\Api
+step_decorators:
+    - \Codeception\Step\AsJson
+modules:
+    # enable helpers as array
+    enabled:
+        - REST:
+            url: http://10.168.26.19/api #staging
+            # url: http://10.5.17.140:8000/api #local Indra
+            depends: PhpBrowser
+            part: Json
+        - Db:
+            dsn: 'mysql:host=192.168.26.200;dbname=VSI_DEVEL_REPORT'
+            user: 'recon_user_new'
+            password: 'recon_pwd_new'
+            databases:
+                db_recon:
+                    dsn: 'mysql:host=192.168.26.200;dbname=VSI_DEVEL_RECON'
+                    user: 'recon_user_new'
+                    password: 'recon_pwd_new'

@@ -1,0 +1,138 @@
+variables:
+  IMAGE: 10.168.26.20/library/recon-api
+  TAG: "${CI_COMMIT_SHORT_SHA}"
+
+image: 10.168.26.20/library/php-laravel-octane-alpine:latest
+
+.change_file_permissions: &change_file_permissions |
+  find . -type f -not -path "./vendor/*" -exec chmod 664 {} \;
+  find . -type d -not -path "./vendor/*" -exec chmod 775 {} \;
+
+composer:
+  stage: build
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}-composer
+    paths:
+      - vendor/
+  script:
+      - composer install --prefer-dist --no-ansi --no-interaction --no-progress --no-scripts
+      - ./vendor/bin/rr get-binary
+      - cp .env.stage .env
+      - php artisan key:generate
+  artifacts:
+    expire_in: 1 month
+    paths:
+      - vendor/
+      - .env
+  tags:
+    - dev
+
+docker-build:
+  dependencies: ["composer"]
+  needs: ["composer"]
+  stage: build
+  image: 10.168.26.20/dockerhub-proxy/library/docker:20.10.23
+  services:
+    - name: docker:20.10.23-dind
+      command: ["--insecure-registry=10.168.26.20"]
+  variables:
+    DOCKER_DRIVER: $DOCKER_DRIVER
+    DOCKER_TLS_CERTDIR: ""
+  before_script:
+    - docker info
+  script:
+    - chmod +x entrypoint.sh
+    - cp .env.stage .env
+    - docker login -u $DOCKER_REGISTRY_USER -p $DOCKER_REGISTRY_PASSWORD
+    - docker login -u $HARBOR_REGISTRY_USER -p $HARBOR_REGISTRY_PASSWORD $DOCKER_URL
+    - docker build -t ${IMAGE}:${TAG} .
+    - docker tag ${IMAGE}:${TAG} ${IMAGE}:${CI_COMMIT_REF_NAME}
+    - docker push ${IMAGE}:${TAG}
+    - docker push ${IMAGE}:${CI_COMMIT_REF_NAME}
+  tags:
+    - dev
+
+codestyle:
+  image: ${IMAGE}:${TAG}
+  stage: test
+  dependencies: ["docker-build","composer"]
+  needs: ["docker-build","composer"]
+  script:
+    - phpcs --standard=PSR2 --extensions=php --ignore=app/Support/helpers.php app
+  tags:
+    - dev
+  allow_failure: true
+
+phpunit:
+  image: ${IMAGE}:${TAG}
+  stage: test
+  dependencies: ["docker-build","composer"]
+  needs: ["docker-build","composer"]
+  dependencies:
+    - composer
+  script:
+    - *change_file_permissions
+    - vendor/bin/phpunit --coverage-text --colors=never
+  tags:
+    - dev
+  allow_failure: true
+
+docker-build-cleanup:
+  stage: test
+  needs: ["phpunit","codestyle"]
+  services:
+    - name: docker:20.10.23-dind
+      command: ["--insecure-registry=10.168.26.20"]
+  variables:
+    DOCKER_DRIVER: $DOCKER_DRIVER
+    DOCKER_TLS_CERTDIR: ""
+  before_script:
+    - docker image list
+  script:
+    - docker rmi ${IMAGE}:${TAG}
+  tags:
+    - shell
+
+staging:
+  stage: deploy
+  image:
+    name: 10.168.26.20/dockerhub-proxy/bitnami/kubectl:latest
+    entrypoint: [""]
+  variables:
+    CA_CERTIFICATE: "$SELFCA"
+  before_script:
+    #- apt-get update -yqq
+    #- apt-get install -yqq ca-certificates
+    - echo "$CA_CERTIFICATE" > ca.crt
+    #- update-ca-certificates --fresh
+  script:
+    - ls
+    - kubectl config get-contexts
+    - kubectl config use-context vsi/k3s-gitlab-agent-devel:k3s-dev
+    - kubectl config view
+    - kubectl --certificate-authority=ca.crt delete secret recon-api-secret  --ignore-not-found=true -n recon-system
+    - kubectl --certificate-authority=ca.crt create secret generic recon-api-secret  --from-literal=DB_AUTH_PASSWORD=${STAGING_DB_AUTH_PASSWORD} --from-literal=DB_RECON_PASSWORD=${STAGING_DB_RECON_PASSWORD} --from-literal=DB_REPORT_PASSWORD=${STAGING_DB_REPORT_PASSWORD} -n recon-system
+    - kubectl --certificate-authority=ca.crt apply -f $CI_PROJECT_DIR/res-api-deploy.yaml # Directory where yamls are placed in repo
+    - kubectl --certificate-authority=ca.crt set image deployment.apps/recon-api-v1 recon-api=${IMAGE}:${TAG} -n recon-system
+    - kubectl --certificate-authority=ca.crt get pods -n recon-system
+
+  environment:
+    name: staging
+    url: http://10.168.26.19/reconapi
+  only:
+    - main
+  tags:
+    - dev
+
+production:
+  stage: deploy
+  script:
+    - php artisan deploy yourdomain.com -s upload
+  environment:
+    name: production
+    url: http://yourdomainss.com
+  when: manual
+  only:
+   - main
+  tags:
+    - dev

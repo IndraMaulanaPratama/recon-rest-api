@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recon-api-v1
+  namespace: recon-system
+  labels:
+    app: recon-api
+    version: v1
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: recon-api
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: recon-api
+        version: v1
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: recon-api
+          image: 10.168.26.20/library/recon-api:staging
+          imagePullPolicy: "Always"
+          ports:
+            - containerPort: 8000
+          volumeMounts:
+            - name: recon-api-secret-volume
+              mountPath: /etc/recon-api-secret-volume
+            - name: recon-api-xls-data
+              mountPath: /usr/recon-api/storage/app/export
+          env:
+            - name: DB_PASSWORD_RACON_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: recon-api-secret
+                  key: DB_AUTH_PASSWORD
+            - name: DB_PASSWORD_SERVER_RECON
+              valueFrom:
+                secretKeyRef:
+                  name: recon-api-secret
+                  key: DB_RECON_PASSWORD
+            - name: DB_PASSWORD_SERVER_REPORT
+              valueFrom:
+                secretKeyRef:
+                  name: recon-api-secret
+                  key: DB_REPORT_PASSWORD
+      volumes:
+        - name: recon-api-secret-volume
+          secret:
+            secretName: recon-api-secret
+        - name: recon-api-xls-data
+          persistentVolumeClaim:
+            claimName: recon-api-xls-vol
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: recon-api-svc
+  namespace: recon-system
+  labels:
+    app: recon-api
+    service: recon-api-svc
+spec:
+  selector:
+    app: recon-api
+  ports:
+    - name: http
+      port: 8000
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: k3s-gateway
+  namespace: recon-system
+spec:
+  selector:
+    istio: ingressgateway # use istio default controller
+  servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - "*"
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: recon-api-vs
+  namespace: recon-system
+spec:
+  hosts:
+    - "*"
+  gateways:
+    - k3s-gateway
+  http:
+    - match:
+        - uri:
+            prefix: /api
+      route:
+        - destination:
+            host: recon-api-svc
+            port:
+              number: 8000
