@@ -1,27 +1,12 @@
-/node_modules
-/public/build
-/public/hot
-/public/storage
-/storage/*.key
-/vendor
-.env.backup
-.phpunit.result.cache
-Homestead.json
-Homestead.yaml
-auth.json
-npm-debug.log
-yarn-error.log
-/.idea
-/.vscode
-rr
-.env
-.rr.yaml
-package-lock.json
-api_list.http
-note.txt
-extras/documentations/references
-extras/documentations/Specification Messaging-Auto Recon Dana.docx
-extras/xml/Document Auto Reconsiliasi Dana.xml
-composer.lock
-storage/export/recon_data/xlsx/
-storage/export/recon_dana/xlsx/
+# IDE Files
+#-------------------------
+/nbproject/
+.idea/*
+
+## Sublime Text cache files
+*.tmlanguage.cache
+*.tmPreferences.cache
+*.stTheme.cache
+*.sublime-workspace
+*.sublime-project
+
